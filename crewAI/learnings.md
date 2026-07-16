@@ -2,6 +2,12 @@
 
 Works in situations where multi-agent collaboration based analysis/research/generation is required, 
 i.e. problems which are a bit more open-ended and not exactly a software.
+Situations where multi-agent systems shine:
+    - Specialized agents required
+    - Parallel workflows
+    - Long running tasks
+    - Review/generation loops
+
 
 CrewAI does not have a concept of isolated thread_id like LangGraph.
 Two users questions can overwrite the flow's state and cause havoc.
