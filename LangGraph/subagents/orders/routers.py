@@ -1,4 +1,4 @@
-from .state import OrderState
+from state import OrderState
 
 def route_by_intent(state: OrderState) -> str:
     return state["action"]
@@ -14,3 +14,6 @@ def delivery_date_check_router(state: OrderState) -> str:
         return "yes"
     else:
         return "no"
+    
+def entry_router(state: OrderState) -> str:
+    return "has_order" if state.get("order") else "no_order"

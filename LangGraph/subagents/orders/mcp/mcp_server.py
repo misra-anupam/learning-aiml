@@ -101,7 +101,7 @@ class OrdersDB:
                 placed_at=datetime.utcnow() - timedelta(days=abs(days_offset) + 1),
                 delivery_date=date.today() + timedelta(days=days_offset if days_offset > 0 else 0),
                 delivery_address="Embassy Tech Village, Bengaluru, KA 560100",
-                items=self._random_items()
+                items=self._random_items(num_items)
             )
 
     def recent_for_customer(self, customer_id: str = "customer-001", limit: int = 5) -> list[Order]:

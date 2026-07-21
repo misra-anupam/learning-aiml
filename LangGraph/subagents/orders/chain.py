@@ -4,8 +4,8 @@ import yaml
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 
-from .llm import model
-from .state import OrderAction, OrderItemIssue, ReturnOption, OrderSelection, ItemSelection
+from llm import model
+from state import OrderAction, OrderItemIssue, ReturnOption, OrderSelection, ItemSelection
 
 _PROMPTS = yaml.safe_load((Path(__file__).parent / "prompts.yaml").read_text())
 

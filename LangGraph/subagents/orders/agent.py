@@ -4,20 +4,29 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import AIMessage
 from langgraph.types import interrupt
 
-from .state import OrderState, Order, Item, OrderAction, OrderSelection, OrderItemIssue, ItemSelection, ReturnOption
-from .routers import route_by_intent, delivery_date_check_router, delivery_address_check_router
-from .chain import _chain
-from .mcp_client import OrdersMCPClient
+from state import OrderState, Order, Item, OrderAction, OrderSelection, OrderItemIssue, ItemSelection, ReturnOption
+from routers import route_by_intent, delivery_date_check_router, delivery_address_check_router, entry_router
+from chain import _chain
+from mcp_client import OrdersMCPClient
+from pathlib import Path
 
-class Orders:
+SERVER_SCRIPT = str(Path(__file__).parent / "mcp" / "mcp_server.py")
 
-    def __init__(self, mcp_client):
+class OrdersAgent:
+
+    def __init__(self, mcp_client: OrdersMCPClient):
         """
         mcp_client: async client exposing .call(endpoint: str, payload: dict) -> dict
         Injected so it can be shared/pooled across subgraphs and mocked in tests.
         """
         self.checkpointer = InMemorySaver()
-        self.mcp = OrdersMCPClient(server_script="orders_mcp_server.py")
+        self.mcp = mcp_client
+
+    @classmethod
+    async def init_mcp(cls) -> "OrdersAgent":
+        mcp_client = OrdersMCPClient(server_script="mcp/mcp_server.py")
+        await mcp_client.connect()
+        return cls(mcp_client=mcp_client)
 
     async def load_recent_orders(self, state: OrderState, config: RunnableConfig):
 
@@ -30,11 +39,19 @@ class Orders:
         """
         orders = await self.mcp.call("/list", {})
         recent = [Order(key=o["key"]) for o in orders]
-        item_names = ", ".join(item["name"] for item in o["items"])
         summary = "\n".join(f"{i+1}. Order {o['key']} - {o.get('status', '')} - {',' .join(item["name"] for item in o["items"])}" for i, o in enumerate(orders))
         return {
             "recent_orders": recent,
             "messages": [AIMessage(content=f"Here are your recent orders:\n{summary}\nWhich order are you interested in?\n\nPlease enter the order ID")],
+            # Resetting state vars from previous conversations, if the order ID has changed
+            "action" : "",
+            "order_item_issue": "",
+            "issue_item": "",
+            "return_options": [],
+            "return_mode": "",
+            "order_items": [],
+            "delivery_address_change_eligibility": "",
+            "delivery_date_change_eligibility": ""
         }
 
     async def save_order_reference(self, state: OrderState, config: RunnableConfig):
@@ -48,7 +65,17 @@ class Orders:
         })
         order_selection_chain = _chain("order_selection", OrderSelection, state["recent_orders"])
         selection = await order_selection_chain.ainvoke({"query": user_reply})
-        return {"order": Order(key=selection.key)}
+        return {
+            "order": Order(key=selection.key),
+            "action": "",
+            "order_item_issue": "",
+            "issue_item": "",
+            "return_options": [],
+            "return_mode": "",
+            "order_items": [],
+            "delivery_address_change_eligibility": "",
+            "delivery_date_change_eligibility": ""
+            }
 
     async def intent(self, state: OrderState, config: RunnableConfig):
 
@@ -71,7 +98,16 @@ class Orders:
         })
         intent_chain = _chain("intent_classification", OrderAction)
         result = await intent_chain.ainvoke({"query": user_reply})
-        return {"action": result.action}
+        return {
+            "action": result.action,
+            "order_item_issue": "",
+            "issue_item": "",
+            "return_options": [],
+            "return_mode": "",
+            "order_items": [],
+            "delivery_address_change_eligibility": "",
+            "delivery_date_change_eligibility": ""
+            }
     
     async def track(self, state: OrderState, config: RunnableConfig):
 
@@ -80,7 +116,16 @@ class Orders:
         Call MCP on /track with order
         """
         status = await self.mcp.call("/track", {"order": state["order"]["key"]})
-        return {"messages": [AIMessage(content=f"Your order status: {status}")]}
+        return {
+            "messages": [AIMessage(content=f"Your order status: {status}")],
+            "order_item_issue": "",
+            "issue_item": "",
+            "return_options": [],
+            "return_mode": "",
+            "order_items": [],
+            "delivery_address_change_eligibility": "",
+            "delivery_date_change_eligibility": ""
+            }
 
     async def cancel(self, state: OrderState, config: RunnableConfig):
 
@@ -94,7 +139,16 @@ class Orders:
         if not eligible.get("eligible"):
             return {"messages": [AIMessage(content="Sorry, this order is no longer eligible for cancellation.")]}
         await self.mcp.call("/cancel", {"order": state["order"]["key"]})
-        return {"messages": [AIMessage(content="Your order has been cancelled.")]}
+        return {
+            "messages": [AIMessage(content="Your order has been cancelled.")],
+            "order_item_issue": "",
+            "issue_item": "",
+            "return_options": [],
+            "return_mode": "",
+            "order_items": [],
+            "delivery_address_change_eligibility": "",
+            "delivery_date_change_eligibility": ""
+            }
 
     async def check_if_delivery_date_can_be_changed(self, state: OrderState, config: RunnableConfig):
 
@@ -107,10 +161,19 @@ class Orders:
         """
         result = await self.mcp.call("/date_change_eligibility", {"order": state["order"]["key"]})
         eligible = bool(result.get("eligible"))
-        update = {"delivery_date_change_eligibility": eligible}
         if not eligible:
-            update["messages"] = [AIMessage(content="This order has already shipped, so the delivery date can't be changed.")]
-        return update
+            return {"messages": [AIMessage(content="This order has already shipped, so the delivery date can't be changed.")]}
+        
+        else:
+            return {
+            "order_item_issue": "",
+            "issue_item": "",
+            "return_options": [],
+            "return_mode": "",
+            "order_items": [],
+            "delivery_date_change_eligibility": eligible,
+            "delivery_address_change_eligibility": ""
+            }
 
     async def change_delivery_date(self, state: OrderState, config: RunnableConfig):
 
@@ -123,7 +186,14 @@ class Orders:
             "message": "What delivery date would you like instead?",
         })
         await self.mcp.call("/change_delivery_date", {"order": state["order"]["key"], "date": new_date})
-        return {"messages": [AIMessage(content=f"Your delivery date has been updated to {new_date}.")]}
+        return {
+            "messages": [AIMessage(content=f"Your delivery date has been updated to {new_date}.")],
+            "order_item_issue": "",
+            "issue_item": "",
+            "return_options": [],
+            "return_mode": "",
+            "order_items": []
+            }
 
     async def check_if_delivery_address_can_be_changed(self, state: OrderState, config: RunnableConfig):
 
@@ -140,13 +210,28 @@ class Orders:
             return {
                 "delivery_address_change_eligibility": False,
                 "messages": [AIMessage(content="This order has already been delivered, so the address can't be changed.")],
+                "order_item_issue": "",
+                "issue_item": "",
+                "return_options": [],
+                "return_mode": "",
+                "order_items": [],
+                "delivery_date_change_eligibility": ""
             }
         result = await self.mcp.call("/address_change_eligibility", {"order": state["order"]["key"]})
         eligible = bool(result.get("eligible"))
-        update = {"delivery_address_change_eligibility": eligible}
+
         if not eligible:
-            update["messages"] = [AIMessage(content="This order can't have its address changed — it's already been dispatched.")]
-        return update
+            return {"messages": [AIMessage(content="This order can't have its address changed — it's already been dispatched.")]}
+        else:
+            return {
+                "order_item_issue": "",
+                "issue_item": "",
+                "return_options": [],
+                "return_mode": "",
+                "order_items": [],
+                "delivery_date_change_eligibility": "",
+                "delivery_address_change_eligibility": eligible
+            }
 
     async def change_delivery_address(self, state: OrderState, config: RunnableConfig):
 
@@ -159,7 +244,14 @@ class Orders:
         "message": "What's the new delivery address?",
         })
         await self.mcp.call("/change_delivery_address", {"order": state["order"]["key"], "address": new_address})
-        return {"messages": [AIMessage(content="Your delivery address has been updated.")]}
+        return {
+            "messages": [AIMessage(content="Your delivery address has been updated.")],
+            "order_item_issue": "",
+            "issue_item": "",
+            "return_options": [],
+            "return_mode": "",
+            "order_items": []
+            }
 
     async def load_order_items(self, state: OrderState, config: RunnableConfig):
         
@@ -173,6 +265,10 @@ class Orders:
         return {
             "order_items": order_items,
             "messages": [AIMessage(content=f"Here are the items in this order:\n{summary}\nWhich item, and what's the issue?")],
+            "order_item_issue": "",
+            "issue_item": "",
+            "return_options": [],
+            "return_mode": ""
         }
 
     async def identify_order_items_issue(self, state: OrderState, config: RunnableConfig):
@@ -190,7 +286,12 @@ class Orders:
         })
         item_issue_chain = _chain("item_issue_classification", OrderItemIssue)
         result = await item_issue_chain.ainvoke({"query": order_issue})
-        return {"order_item_issue": result.issue}
+        return {
+            "order_item_issue": result.issue,
+            "issue_item": "",
+            "return_options": [],
+            "return_mode": ""
+            }
 
     async def save_issue_item(self, state: OrderState, config: RunnableConfig):
         
@@ -203,7 +304,12 @@ class Orders:
         })
         issue_item_selection_chain = _chain("issue_item_selection", ItemSelection)
         selection = await issue_item_selection_chain.ainvoke({"query": item_issue})
-        return {"issue_item": Item(key=selection.key)}
+        return {
+            "issue_item": Item(key=selection.key),
+            "order_item_issue": "",
+            "return_options": [],
+            "return_mode": ""
+            }
 
 
     async def load_options_reorder_or_return_or_refund(self, state: OrderState, config: RunnableConfig):
@@ -300,7 +406,14 @@ class Orders:
         graph.add_node("talk_to_human", self.talk_to_human)
         graph.add_node("redelivery_request", self.redelivery_request)
 
-        graph.add_edge(START, "load_recent_orders")
+        graph.add_conditional_edges(
+            START,
+            entry_router,
+            {
+                "has_order": "intent",
+                "no_order": "load_recent_orders",
+            },
+        )       
         graph.add_edge("load_recent_orders", "save_order_reference")
         graph.add_edge("save_order_reference", "intent")
 
