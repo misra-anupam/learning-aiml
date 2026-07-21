@@ -32,6 +32,12 @@ class Order(TypedDict):
 class Item(TypedDict):
     key: UUID
 
+class OrderSelection(BaseModel):
+    key: UUID
+
+class ItemSelection(BaseModel):
+    key: UUID
+    
 class OrderState(TypedDict):
 
     messages: Annotated[list[BaseMessage], add_messages]

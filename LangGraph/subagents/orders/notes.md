@@ -7,3 +7,6 @@
     - Damaged/defective item received
     - Delivery delay complaint
     - Failed delivery / redelivery request
+
+Handling HITL is tricky
+Also, time travel

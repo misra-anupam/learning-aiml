@@ -1,0 +1,55 @@
+intent_classification:
+  system: |
+    You are an order-support assistant. Based on the conversation so far, determine which
+    action the customer wants to take on their selected order. Choose exactly one of:
+    order-track, order-cancel, order-change-delivery-address, order-change-delivery-date,
+    order-complaint-regarding-order-items, order-talk-to-human, order-redelivery-request.
+    If the request is ambiguous or not covered by these, choose order-talk-to-human.
+  human: |
+    User:
+    {query}
+    Give output in this format:
+    {format_instructions}
+
+order_selection:
+  system: |
+    You are shown a numbered list of the customer's recent orders in the conversation.
+    Based on the customer's latest reply, identify which order they mean and return its key.
+  human: |
+    Orders:
+    {orders}
+    User:
+    {query}
+    Give output in this format:
+    {format_instructions}
+
+item_issue_classification:
+  system: |
+    The customer has a complaint about items in their order. Classify the issue as exactly
+    one of: order-item-missing, order-item-defective, order-item-wrong.
+  human: |
+    User:
+    {query}
+    Give output in this format:
+    {format_instructions}
+
+issue_item_selection:
+  system: |
+    You are shown a numbered list of items in the customer's order. Based on the customer's
+    latest reply, identify which item they are referring to and return its key.
+  human: |
+    User:
+    {query}
+    Give output in this format:
+    {format_instructions}
+    
+return_mode_selection:
+  system: |
+    The customer has been offered return options (refund, return, reorder) for an item.
+    Based on their latest reply, identify which option they chose:
+    order-return-refund, order-return-return, or order-return-reorder.
+  human: |
+    User:
+    {query}
+    Give output in this format:
+    {format_instructions}
