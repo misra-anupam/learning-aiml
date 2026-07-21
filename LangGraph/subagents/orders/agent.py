@@ -1,20 +1,9 @@
-from langgraph import StateGraph, END, START
+from langgraph.graph import StateGraph, END, START
+from langgraph.checkpoint.memory import InMemorySaver
+from langchain_core.runnables import RunnableConfig
 from .state import OrderState
-
-def route_by_intent(state: OrderState) -> str:
-    return state["action"]
-
-def delivery_address_check_router(state: OrderState) -> str:
-    if state["delivery_address_change_eligibility"]:
-        return "yes"
-    else:
-        return "no"
-
-def delivery_date_check_router(state: OrderState) -> str:
-    if state["delivery_date_change_eligibility"]:
-        return "yes"
-    else:
-        return "no"
+from .routers import route_by_intent, delivery_date_check_router, delivery_address_check_router
+from .llm import model
 
 class Orders:
 
@@ -23,9 +12,16 @@ class Orders:
         """
         Load MCP for order management.
         """
+        self.checkpointer = InMemorySaver()
+
+    def init_mcp_client(self, mcp_url):
+        
+        """
+        Initialize a stdio MCP url
+        """
         pass
 
-    def load_recent_orders(self, state):
+    def load_recent_orders(self, state: OrderState, config: RunnableConfig):
 
         """
         Load recent top 5 orders.
@@ -33,14 +29,14 @@ class Orders:
         """
         pass
 
-    def save_order_reference(self, state):
+    def save_order_reference(self, state: OrderState, config: RunnableConfig):
 
         """
         Accept user selection and save order reference to state with key order=Order(key=...).
         """
         pass
 
-    def intent(self, state):
+    def intent(self, state: OrderState, config: RunnableConfig):
 
         """
         Determine user action for the identified order
@@ -56,7 +52,7 @@ class Orders:
         Save it to OrderActionType
         """
     
-    def track(self, state):
+    def track(self, state: OrderState, config: RunnableConfig):
 
         """
         Track order status.
@@ -64,7 +60,7 @@ class Orders:
         """
         pass
 
-    def cancel(self, state):
+    def cancel(self, state: OrderState, config: RunnableConfig):
 
         """
         Check if order can be cancelled.
@@ -74,17 +70,18 @@ class Orders:
         """
         pass
 
-    def check_if_delivery_date_can_be_changed(self, state):
+    def check_if_delivery_date_can_be_changed(self, state: OrderState, config: RunnableConfig):
 
         """
         Check if order has been delivered.
         If not delivered, can delivery date be changed?
         Call MCP on /date_change_eligibility with order
         Update state with key delivery_date_change_eligibility to True or False
+        If False, notify the user of the same
         """
         pass
 
-    def change_delivery_date(self, state):
+    def change_delivery_date(self, state: OrderState, config: RunnableConfig):
 
         """
         Accept from user the new delivery date
@@ -92,7 +89,7 @@ class Orders:
         """
         pass
 
-    def check_if_delivery_address_can_be_changed(self, state):
+    def check_if_delivery_address_can_be_changed(self, state: OrderState, config: RunnableConfig):
 
         """
         Check if order has been delivered.
@@ -100,10 +97,11 @@ class Orders:
         If not delivered, can address be changed?
         Call MCP on /address_change_eligibility with order
         Update state with key delivery_address_change_eligibility to True or False
+        If False, notify the user of the same
         """
         pass
 
-    def change_delivery_address(self, state):
+    def change_delivery_address(self, state: OrderState, config: RunnableConfig):
 
         """
         Accept from user the new delivery address
@@ -111,7 +109,7 @@ class Orders:
         """
         pass
 
-    def load_order_items(self, state):
+    def load_order_items(self, state: OrderState, config: RunnableConfig):
         
         """
         Show expected items in order.
@@ -119,7 +117,7 @@ class Orders:
         """
         pass
 
-    def identify_order_items_issue(self, state):
+    def identify_order_items_issue(self, state: OrderState, config: RunnableConfig):
 
         """
         Understand what is the issue
@@ -130,14 +128,14 @@ class Orders:
         """
         pass
 
-    def save_issue_item(self, state):
+    def save_issue_item(self, state: OrderState, config: RunnableConfig):
         
         """
         Accept user selection and save issue item to state with key issue_item=Item(key=...).
         """
         pass
 
-    def load_options_reorder_or_return_or_refund(self, state):
+    def load_options_reorder_or_return_or_refund(self, state: OrderState, config: RunnableConfig):
 
         """
         Check policy if item can be refunded.
@@ -146,21 +144,21 @@ class Orders:
         """
         pass
 
-    def save_missing_defective_wrong_item_input(self, state):
+    def save_missing_defective_wrong_item_input(self, state: OrderState, config: RunnableConfig):
         
         """
         Accept user input and accordingly trigger action. Save response to state with key return_mode
         """
         pass
 
-    def process_item_return(self, state):
+    def process_item_return(self, state: OrderState, config: RunnableConfig):
 
         """
         Refund/reorder/return the order.
         """
         pass
 
-    def talk_to_human(self, state):
+    def talk_to_human(self, state: OrderState, config: RunnableConfig):
         
         """
         HITL -> When not addressed by the above options
@@ -168,7 +166,7 @@ class Orders:
         """
         pass
 
-    def redelivery_request(self, state):
+    def redelivery_request(self, state: OrderState, config: RunnableConfig):
         
         """
         Schedule delivery on today()+1 on /change_delivery_date
@@ -178,7 +176,7 @@ class Orders:
 
     def build_graph(self):
 
-        graph = StateGraph()
+        graph = StateGraph(OrderState)
 
         graph.add_node("load_recent_orders", self.load_recent_orders)
         graph.add_node("save_order_reference", self.save_order_reference)
@@ -216,7 +214,7 @@ class Orders:
             }
         )
 
-        graph.add_conditional_edge(
+        graph.add_conditional_edges(
             "check_if_delivery_address_can_be_changed",
             delivery_address_check_router,
             {
@@ -224,7 +222,7 @@ class Orders:
                 "no":END
             }
         )
-        graph.add_conditional_edge(
+        graph.add_conditional_edges(
             "check_if_delivery_date_can_be_changed",
             delivery_date_check_router,
             {
@@ -250,5 +248,5 @@ class Orders:
         ]:
             graph.add_edge(item, END)
 
-        return graph.compile()
+        return graph.compile(checkpointer=self.checkpointer)
 

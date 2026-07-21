@@ -17,6 +17,15 @@ OrderActionType = Literal[
     "order-change-delivery-date", "order-complaint-regarding-order-items",
     "order-talk-to-human", "order-redelivery-request"
 ]
+
+class OrderAction(BaseModel):
+    action: OrderActionType
+
+class OrderItemIssue(BaseModel):
+    issue: IssueType
+
+class ReturnOption(BaseModel):
+    option: ReturnMode
 class Order(TypedDict):
     key: UUID
 
